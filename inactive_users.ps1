@@ -26,7 +26,10 @@ $staleUsers = Get-ADUser -Filter * -Properties LastLogonDate, Enabled |
     Select-Object Name, SamAccountName, Enabled, LastLogonDate
 
 # --- Export als CSV ---
-$csvPath = "C:\Temp\AD_StaleUsers.csv"
+# --- Export als CSV ---
+$timestamp = (Get-Date).ToString("yyyy-MM-dd_HH-mm")
+$csvPath = "C:\Temp\AD_StaleUsers_$timestamp.csv"
+
 $staleUsers | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
 
 Write-Host "Export abgeschlossen: $csvPath" -ForegroundColor Cyan
