@@ -25,8 +25,7 @@ $staleUsers = Get-ADUser -Filter * -Properties LastLogonDate, Enabled |
     } |
     Select-Object Name, SamAccountName, Enabled, LastLogonDate
 
-# --- Export als CSV ---
-# --- Export als CSV ---
+# --- CSV-Export mit Timestamp ---
 $timestamp = (Get-Date).ToString("yyyy-MM-dd_HH-mm")
 $csvPath = "C:\Temp\AD_StaleUsers_$timestamp.csv"
 
@@ -40,4 +39,20 @@ foreach ($user in $staleUsers) {
     Write-Host "Deaktiviert: $($user.SamAccountName)" -ForegroundColor Yellow
 }
 
-Write-Host "`nFertig. Alle gefundenen alten Konten (außer Whitelist) wurden deaktiviert." -ForegroundColor Green
+Write-Host "`nAlle gefundenen alten Konten (außer Whitelist) wurden deaktiviert." -ForegroundColor Green
+
+# --- Logdatei erstellen ---
+$runDate = Get-Date
+$logTimestamp = $runDate.ToString("yyyy-MM-dd_HH-mm")
+$logPath = "C:\Temp\AD_StaleUsers_Deaktivierung_$logTimestamp.txt"
+
+# Kopfzeile
+"Am $($runDate.ToString('yyyy-MM-dd')) um $($runDate.ToString('HH:mm')) wurden folgende Konten deaktiviert:`n" | Out-File -FilePath $logPath -Encoding UTF8 -Force
+
+foreach ($user in $staleUsers) {
+    $lastLogon = $user.LastLogonDate.ToString("yyyy-MM-dd HH:mm")
+    $line = "$($user.Name) als $($user.SamAccountName), weil seit $lastLogon nicht mehr angemeldet."
+    $line | Out-File -FilePath $logPath -Encoding UTF8 -Append
+}
+
+Write-Host "Logdatei erstellt: $logPath" -ForegroundColor Cyan
