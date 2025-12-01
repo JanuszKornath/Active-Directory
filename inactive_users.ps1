@@ -16,14 +16,14 @@ $whitelist = @(
 )
 
 # --- Benutzer suchen ---
-$staleUsers = Get-ADUser -Filter * -Properties LastLogonDate, Enabled |
+$staleUsers = Get-ADUser -Filter * -Properties LastLogonDate, Enabled, DistinguishedName |
     Where-Object {
         ($_.Enabled -eq $true) -and
         ($_.LastLogonDate -ne $null) -and
         ($_.LastLogonDate -lt $cutoff) -and
         ($whitelist -notcontains $_.SamAccountName)
     } |
-    Select-Object Name, SamAccountName, Enabled, LastLogonDate
+    Select-Object Name, SamAccountName, Enabled, LastLogonDate, DistinguishedName
 
 # --- CSV-Export mit Timestamp ---
 $timestamp = (Get-Date).ToString("yyyy-MM-dd_HH-mm")
@@ -50,8 +50,16 @@ $logPath = "C:\Temp\AD_StaleUsers_Deaktivierung_$logTimestamp.txt"
 "Am $($runDate.ToString('yyyy-MM-dd')) um $($runDate.ToString('HH:mm')) wurden folgende Konten deaktiviert:`n" | Out-File -FilePath $logPath -Encoding UTF8 -Force
 
 foreach ($user in $staleUsers) {
+
+    # OU extrahieren und formatieren
+    $ouPath = ($user.DistinguishedName -replace '^CN=[^,]+,', '')
+    $ouPath = ($ouPath -replace 'DC=[^,]+,?', '')
+    $ouParts = ($ouPath -split ',' | Where-Object { $_ -match '^OU=' })
+    $ouParts = $ouParts | ForEach-Object { $_ -replace '^OU=', '' }
+    $ou = ($ouParts[-1..0] -join ' / ')
+
     $lastLogon = $user.LastLogonDate.ToString("yyyy-MM-dd HH:mm")
-    $line = "$($user.Name) als $($user.SamAccountName), weil seit $lastLogon nicht mehr angemeldet."
+    $line = "$($user.Name), angelegt als $($user.SamAccountName) in der Organisationseinheit $ou, weil seit $lastLogon nicht mehr angemeldet."
     $line | Out-File -FilePath $logPath -Encoding UTF8 -Append
 }
 
