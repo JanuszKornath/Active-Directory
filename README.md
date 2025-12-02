@@ -1,4 +1,4 @@
-# Collection of Scripts and tools for managing Active Directory
+# Collection of Scripts and tools for managing Active Directory environments
 ## inactive_users.ps1
 
 This PowerShell script scans an Active Directory domain for user accounts that have not logged in for more than 180 days, exports the results to a CSV file, and automatically disables all identified accounts (excluding those explicitly added to a whitelist).
