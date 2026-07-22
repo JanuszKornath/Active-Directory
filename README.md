@@ -59,3 +59,57 @@ The script generates two files per execution:
 - Sufficient AD permissions (e.g., Domain Admin)
 - PowerShell 5.1 or PowerShell 7
 - Access to the AD OU structure
+
+## scheduled_account_tasks.ps1
+
+This PowerShell script is the counterpart to `inactive_users.ps1`: instead of disabling accounts, it enables disabled user accounts and/or changes group memberships based on a CSV task file. It is designed to be run at a specific time via Windows Task Scheduler — for example: "New employees start Monday at 06:00 — enable their accounts and add them to their department groups."
+
+### How it works
+
+You prepare a CSV task file (default: `C:\Temp\AD_AccountTasks.csv`) ahead of time, then schedule the script to run whenever the changes should take effect:
+
+```
+SamAccountName,Enable,AddGroups,RemoveGroups
+mmustermann,Ja,VPN-Benutzer;Abt-Vertrieb,Praktikanten
+jdoe,Nein,Abt-IT,
+```
+
+- **SamAccountName** — the user to process
+- **Enable** — `Ja`/`Yes`/`true`/`1` enables the account; anything else leaves it untouched
+- **AddGroups** — groups to add the user to (separate multiple groups with `;`)
+- **RemoveGroups** — groups to remove the user from (separate multiple groups with `;`)
+
+After a successful run the task file is renamed to `AD_AccountTasks_verarbeitet_<timestamp>.csv`, so the same tasks are never accidentally executed twice by the next scheduled run (use `-KeepTaskFile` to disable this).
+
+### Features:
+- Enables disabled AD user accounts
+- Adds and removes group memberships
+- CSV-driven — prepare changes ahead of time, execute them on schedule
+- Per-row error handling: one bad entry does not stop the run
+- Detailed log file per execution
+- Task file archiving to prevent double execution
+- Exit code 1 on errors, so Task Scheduler reports failed runs
+- Fully Task Scheduler compatible
+
+### Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-TaskFile` | `C:\Temp\AD_AccountTasks.csv` | Path to the CSV task file |
+| `-LogDir` | `C:\Temp` | Directory for log files |
+| `-KeepTaskFile` | off | Do not archive the task file after the run |
+
+### Task Scheduler setup
+
+Unlike `inactive_users.ps1`, this script intentionally does **not** self-elevate — a UAC prompt would hang forever in an unattended scheduled task. Instead, configure the task itself:
+
+1. Run the task under an account with sufficient AD permissions
+2. Enable "Run with highest privileges"
+3. Action: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\scheduled_account_tasks.ps1"`
+4. Trigger: the date/time the changes should take effect
+
+### Requirements:
+- Windows Server or Windows 10+
+- RSAT / ActiveDirectory PowerShell module
+- Sufficient AD permissions (e.g., Account Operator or delegated rights)
+- PowerShell 5.1 or PowerShell 7
