@@ -8,9 +8,19 @@
 #
 # CSV-Format (Trennzeichen: Komma, mehrere Gruppen mit ";" trennen):
 #
-#   SamAccountName,Enable,AddGroups,RemoveGroups
-#   mmustermann,Ja,VPN-Benutzer;Abt-Vertrieb,Praktikanten
-#   jdoe,Nein,Abt-IT,
+#   SamAccountName,Enable,AddGroups,RemoveGroups,Datum
+#   mmustermann,Ja,VPN-Benutzer;Abt-Vertrieb,Praktikanten,2026-07-27
+#   jdoe,Nein,Abt-IT,,28.07.2026
+#   asmith,Ja,,,
+#
+# Die Spalte "Datum" ist optional (Formate: yyyy-MM-dd oder dd.MM.yyyy):
+#   - Zeilen mit Datum werden erst ab diesem Tag ausgefuehrt; bis dahin
+#     bleiben sie in der Aufgabendatei stehen. So reicht EINE zentrale
+#     Aufgabendatei plus EINE taegliche geplante Aufgabe, um an
+#     verschiedenen Tagen verschiedene Aenderungen auszufuehren.
+#   - Zeilen ohne Datum werden beim naechsten Lauf sofort ausgefuehrt.
+#   - Abgearbeitete Zeilen werden in eine Archivdatei verschoben,
+#     noch nicht faellige Zeilen bleiben erhalten.
 #
 # Hinweis: KEIN Selbst-Elevation-Block wie in inactive_users.ps1 -
 # ein UAC-Prompt wuerde in der Aufgabenplanung haengen bleiben.
@@ -63,9 +73,38 @@ if (-not $tasks) {
 }
 
 $errorCount = 0
+$today = $runDate.Date
+$remainingRows = @()   # noch nicht faellige Zeilen, bleiben in der Aufgabendatei
+$processedRows = @()   # heute abgearbeitete Zeilen, wandern ins Archiv
 
 # --- Aufgaben abarbeiten ---
 foreach ($task in $tasks) {
+
+    # --- Faelligkeit pruefen (Spalte "Datum" ist optional) ---
+    $dateText = "$($task.Datum)".Trim()
+    if ($dateText) {
+        $dueDate = [datetime]::MinValue
+        $dateValid = $false
+        foreach ($format in 'yyyy-MM-dd', 'dd.MM.yyyy') {
+            if ([datetime]::TryParseExact($dateText, $format,
+                    [System.Globalization.CultureInfo]::InvariantCulture,
+                    [System.Globalization.DateTimeStyles]::None, [ref]$dueDate)) {
+                $dateValid = $true
+                break
+            }
+        }
+        if (-not $dateValid) {
+            Write-Log "FEHLER: Ungueltiges Datum '$dateText' bei '$($task.SamAccountName)' (erwartet yyyy-MM-dd oder dd.MM.yyyy) - Zeile bleibt in der Aufgabendatei." Red
+            $errorCount++
+            $remainingRows += $task
+            continue
+        }
+        if ($dueDate.Date -gt $today) {
+            $remainingRows += $task
+            continue
+        }
+    }
+    $processedRows += $task
 
     $sam = ($task.SamAccountName).Trim()
     if ([string]::IsNullOrWhiteSpace($sam)) { continue }
@@ -125,11 +164,26 @@ foreach ($task in $tasks) {
     }
 }
 
-# --- Aufgabendatei archivieren ---
+# --- Aufgabendatei aktualisieren ---
+# Abgearbeitete Zeilen ins Archiv verschieben (verhindert Doppel-
+# ausfuehrung), noch nicht faellige Zeilen bleiben in der Aufgabendatei.
 if (-not $KeepTaskFile) {
-    $archivePath = [System.IO.Path]::ChangeExtension($TaskFile, $null).TrimEnd('.') + "_verarbeitet_$logTimestamp.csv"
-    Move-Item -Path $TaskFile -Destination $archivePath -Force
-    Write-Log "`nAufgabendatei archiviert als: $archivePath" Cyan
+    $baseName = [System.IO.Path]::ChangeExtension($TaskFile, $null).TrimEnd('.')
+
+    if ($processedRows.Count -gt 0) {
+        $archivePath = $baseName + "_verarbeitet_$logTimestamp.csv"
+        $processedRows | Export-Csv -Path $archivePath -NoTypeInformation -Encoding UTF8
+        Write-Log "`n$($processedRows.Count) abgearbeitete Zeile(n) archiviert als: $archivePath" Cyan
+    }
+
+    if ($remainingRows.Count -gt 0) {
+        $remainingRows | Export-Csv -Path $TaskFile -NoTypeInformation -Encoding UTF8
+        Write-Log "$($remainingRows.Count) noch nicht faellige Zeile(n) verbleiben in: $TaskFile" Cyan
+    }
+    else {
+        Remove-Item -Path $TaskFile -Force
+        Write-Log "Alle Zeilen abgearbeitet, Aufgabendatei entfernt: $TaskFile" Cyan
+    }
 }
 
 Write-Log "`nLogdatei erstellt: $logPath" Cyan
