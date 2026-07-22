@@ -59,3 +59,61 @@ The script generates two files per execution:
 - Sufficient AD permissions (e.g., Domain Admin)
 - PowerShell 5.1 or PowerShell 7
 - Access to the AD OU structure
+
+## scheduled_account_tasks.ps1
+
+This PowerShell script is the counterpart to `inactive_users.ps1`: instead of disabling accounts, it enables disabled user accounts and/or changes group memberships based on a CSV task file. It is designed to be run at a specific time via Windows Task Scheduler — for example: "New employees start Monday at 06:00 — enable their accounts and add them to their department groups."
+
+### How it works
+
+You prepare a CSV task file (default: `C:\Temp\AD_AccountTasks.csv`) ahead of time, then schedule the script to run daily — each row is executed on its scheduled date:
+
+```
+SamAccountName,Enable,AddGroups,RemoveGroups,Datum
+mmustermann,Ja,VPN-Benutzer;Abt-Vertrieb,Praktikanten,2026-07-27
+jdoe,Nein,Abt-IT,,28.07.2026
+asmith,Ja,,,
+```
+
+- **SamAccountName** — the user to process
+- **Enable** — `Ja`/`Yes`/`true`/`1` enables the account; anything else leaves it untouched
+- **AddGroups** — groups to add the user to (separate multiple groups with `;`)
+- **RemoveGroups** — groups to remove the user from (separate multiple groups with `;`)
+- **Datum** — optional execution date (`yyyy-MM-dd` or `dd.MM.yyyy`). Rows with a date are only executed once that day has arrived; until then they stay in the task file untouched. Rows without a date are executed on the next run. This way a single central task file plus one daily scheduled task covers different changes on different days of the week — just keep adding rows with the appropriate dates.
+
+After each run, processed rows are moved to an archive file (`AD_AccountTasks_verarbeitet_<timestamp>.csv`) so they are never accidentally executed twice, while not-yet-due rows remain in the task file for future runs (use `-KeepTaskFile` to disable this). If a row's date lies in the past but the row is still in the task file (e.g., the server was off that day), it is caught up on the next run.
+
+### Features:
+- Enables disabled AD user accounts
+- Adds and removes group memberships
+- CSV-driven — prepare changes ahead of time, execute them on schedule
+- Per-row execution date: one central task file, one daily scheduled task, different changes on different days
+- Catch-up for missed dates (e.g., after server downtime)
+- Per-row error handling: one bad entry does not stop the run
+- Detailed log file per execution
+- Processed rows are archived to prevent double execution
+- Exit code 1 on errors, so Task Scheduler reports failed runs
+- Fully Task Scheduler compatible
+
+### Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-TaskFile` | `C:\Temp\AD_AccountTasks.csv` | Path to the CSV task file |
+| `-LogDir` | `C:\Temp` | Directory for log files |
+| `-KeepTaskFile` | off | Do not archive the task file after the run |
+
+### Task Scheduler setup
+
+Unlike `inactive_users.ps1`, this script intentionally does **not** self-elevate — a UAC prompt would hang forever in an unattended scheduled task. Instead, configure the task itself:
+
+1. Run the task under an account with sufficient AD permissions
+2. Enable "Run with highest privileges"
+3. Action: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\scheduled_account_tasks.ps1"`
+4. Trigger: daily at the time the changes should take effect (e.g., 06:00) — the `Datum` column decides which rows run on which day
+
+### Requirements:
+- Windows Server or Windows 10+
+- RSAT / ActiveDirectory PowerShell module
+- Sufficient AD permissions (e.g., Account Operator or delegated rights)
+- PowerShell 5.1 or PowerShell 7
