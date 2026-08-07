@@ -89,12 +89,26 @@ asmith,Ja,,,
 
 After each run, processed rows are moved to an archive file (`AD_AccountTasks_verarbeitet_<timestamp>.csv`) so they are never accidentally executed twice, while not-yet-due rows remain in the task file for future runs (use `-KeepTaskFile` to disable this). If a row's date lies in the past but the row is still in the task file (e.g., the server was off that day), it is caught up on the next run.
 
+### File format tolerance
+
+The task file does not have to be in one exact format. Encoding is detected from the byte order mark (UTF-8 with or without BOM, UTF-16 LE/BE, UTF-32) and the column separator is detected from the header line (comma, semicolon or tab). This matters in practice because a German Excel writes semicolon-separated files, and PowerShell's own `Out-File` and `>` default to UTF-16 — both of which would otherwise be silently unreadable.
+
+Both are written to the log on every run, and the file is rewritten in its original format, so a file maintained in Excel stays usable afterwards. If the `SamAccountName` column is missing, the script names the columns it did find and stops, rather than failing later with an unhelpful error.
+
+### Repeatable runs
+
+Group changes are applied only where they are actually needed: the script reads each user's current memberships first, so a group the user already belongs to (or already does not belong to) is logged as such instead of counting as an error. Re-running the same task file therefore ends with exit code 0 rather than reporting failures for work that was already done.
+
+This check is done by comparing distinguished names rather than by inspecting error messages, which differ by domain controller language.
+
 ### Features:
 - Enables disabled AD user accounts
 - Adds and removes group memberships
 - CSV-driven — prepare changes ahead of time, execute them on schedule
 - Per-row execution date: one central task file, one daily scheduled task, different changes on different days
 - Catch-up for missed dates (e.g., after server downtime)
+- Automatic detection of file encoding and column separator
+- Repeatable: existing or already-absent group memberships count as success, not as errors
 - Per-row error handling: one bad entry does not stop the run
 - Detailed log file per execution
 - Processed rows are archived to prevent double execution
