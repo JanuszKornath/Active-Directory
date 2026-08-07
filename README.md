@@ -1,4 +1,10 @@
 # Collection of Scripts and tools for managing Active Directory environments
+
+Both scripts are designed for unattended, recurring execution. See
+**[TASK_SCHEDULER.md](TASK_SCHEDULER.md)** for a step-by-step guide to setting
+them up in the Windows Task Scheduler, including account and permission choices,
+result codes, and troubleshooting.
+
 ## inactive_users.ps1
 
 This PowerShell script scans an Active Directory domain for user accounts that have not logged in for more than 180 days, exports the results to a CSV file, and automatically disables all identified accounts (excluding those explicitly added to a whitelist).
@@ -109,8 +115,10 @@ Unlike `inactive_users.ps1`, this script intentionally does **not** self-elevate
 
 1. Run the task under an account with sufficient AD permissions
 2. Enable "Run with highest privileges"
-3. Action: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\scheduled_account_tasks.ps1"`
+3. Action: `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\Scripts\scheduled_account_tasks.ps1"`
 4. Trigger: daily at the time the changes should take effect (e.g., 06:00) — the `Datum` column decides which rows run on which day
+
+The full walkthrough — choosing the task account, gMSA setup, delegating minimal AD permissions, testing, result codes and troubleshooting — is in **[TASK_SCHEDULER.md](TASK_SCHEDULER.md)**.
 
 ### Requirements:
 - Windows Server or Windows 10+
