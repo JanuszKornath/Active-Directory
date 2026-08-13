@@ -10,7 +10,7 @@ Import-Module ActiveDirectory
 $days = 180
 $cutoff = (Get-Date).AddDays(-$days)
 
-# Whitelist: SamAccountNames, die niemals deaktiviert werden dürfen
+# Whitelist: SamAccountNames, die niemals deaktiviert werden duerfen
 $whitelist = @(
     "Administrator"
 )
@@ -19,7 +19,7 @@ $whitelist = @(
 $staleUsers = Get-ADUser -Filter * -Properties LastLogonDate, Enabled, DistinguishedName |
     Where-Object {
         ($_.Enabled -eq $true) -and
-        ($_.LastLogonDate -ne $null) -and
+        ($null -ne $_.LastLogonDate) -and
         ($_.LastLogonDate -lt $cutoff) -and
         ($whitelist -notcontains $_.SamAccountName)
     } |
@@ -39,7 +39,7 @@ foreach ($user in $staleUsers) {
     Write-Host "Deaktiviert: $($user.SamAccountName)" -ForegroundColor Yellow
 }
 
-Write-Host "`nAlle gefundenen alten Konten (außer Whitelist) wurden deaktiviert." -ForegroundColor Green
+Write-Host "`nAlle gefundenen alten Konten (ausser Whitelist) wurden deaktiviert." -ForegroundColor Green
 
 # --- Logdatei erstellen ---
 $runDate = Get-Date

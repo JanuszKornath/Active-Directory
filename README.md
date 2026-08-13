@@ -143,3 +143,16 @@ The full walkthrough — choosing the task account, gMSA setup, delegating minim
 - RSAT / ActiveDirectory PowerShell module
 - Sufficient AD permissions (e.g., Account Operator or delegated rights)
 - PowerShell 5.1 or PowerShell 7
+
+---
+
+## Continuous integration
+
+Every push to `main` and every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on a Windows runner:
+
+- **Syntax check** — every `.ps1` file is parsed with `[System.Management.Automation.Language.Parser]`. This catches a broken script before it reaches a domain controller, where the next scheduled run would be the first thing to notice.
+- **PSScriptAnalyzer** — linting, configured through [`PSScriptAnalyzerSettings.psd1`](PSScriptAnalyzerSettings.psd1). `PSAvoidUsingWriteHost` is excluded on purpose: both scripts write coloured status output meant for a human reading the console or the log.
+
+The workflow deliberately uses `powershell` (Windows PowerShell 5.1) rather than `pwsh` (7), because that is what the scheduled task invokes — and the two differ in exactly the area these scripts care about, encoding defaults.
+
+What CI cannot do here: run the scripts against Active Directory. GitHub-hosted runners have no RSAT and no `ActiveDirectory` module, so any change to the AD logic itself still needs a manual run against a test domain.
