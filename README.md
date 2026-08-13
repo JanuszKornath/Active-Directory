@@ -89,6 +89,8 @@ asmith,Ja,,,
 
 After each run, processed rows are moved to an archive file (`AD_AccountTasks_verarbeitet_<timestamp>.csv`) so they are never accidentally executed twice, while not-yet-due rows remain in the task file for future runs (use `-KeepTaskFile` to disable this). If a row's date lies in the past but the row is still in the task file (e.g., the server was off that day), it is caught up on the next run.
 
+Once every row has been processed, the task file itself stays in place with just its header line, so the next batch of changes can simply be appended — no need to recreate and reformat the file each time. The header is written back exactly as it was found, keeping the original column names, encoding and separator. A run that finds nothing to do logs `Keine offenen Aufgaben` and exits with code 0. If you prefer the file to be deleted when it runs empty, pass `-RemoveEmptyTaskFile`.
+
 ### File format tolerance
 
 The task file does not have to be in one exact format. Encoding is detected from the byte order mark (UTF-8 with or without BOM, UTF-16 LE/BE, UTF-32) and the column separator is detected from the header line (comma, semicolon or tab). This matters in practice because a German Excel writes semicolon-separated files, and PowerShell's own `Out-File` and `>` default to UTF-16 — both of which would otherwise be silently unreadable.
@@ -112,6 +114,7 @@ This check is done by comparing distinguished names rather than by inspecting er
 - Per-row error handling: one bad entry does not stop the run
 - Detailed log file per execution
 - Processed rows are archived to prevent double execution
+- The task file survives an empty run: its header line stays, ready for the next batch
 - Exit code 1 on errors, so Task Scheduler reports failed runs
 - Fully Task Scheduler compatible
 
@@ -122,6 +125,7 @@ This check is done by comparing distinguished names rather than by inspecting er
 | `-TaskFile` | `C:\Temp\AD_AccountTasks.csv` | Path to the CSV task file |
 | `-LogDir` | `C:\Temp` | Directory for log files |
 | `-KeepTaskFile` | off | Do not archive the task file after the run |
+| `-RemoveEmptyTaskFile` | off | Delete the task file once all rows have been processed, instead of keeping its header line |
 
 ### Task Scheduler setup
 

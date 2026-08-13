@@ -21,6 +21,9 @@
 #   - Zeilen ohne Datum werden beim naechsten Lauf sofort ausgefuehrt.
 #   - Abgearbeitete Zeilen werden in eine Archivdatei verschoben,
 #     noch nicht faellige Zeilen bleiben erhalten.
+#   - Sind alle Zeilen abgearbeitet, bleibt die Aufgabendatei mit ihrer
+#     Kopfzeile stehen und ist sofort wieder befuellbar. Sie wird nur
+#     dann geloescht, wenn -RemoveEmptyTaskFile gesetzt ist.
 #
 # Kodierung und Trennzeichen der Aufgabendatei werden automatisch
 # erkannt (UTF-8 mit/ohne BOM, UTF-16, UTF-32; Komma, Semikolon oder
@@ -45,7 +48,12 @@ param(
 
     # Standard: Aufgabendatei nach dem Lauf archivieren (verhindert
     # versehentliche Doppelausfuehrung beim naechsten geplanten Lauf)
-    [switch]$KeepTaskFile
+    [switch]$KeepTaskFile,
+
+    # Standard: die leergearbeitete Aufgabendatei bleibt mit ihrer
+    # Kopfzeile bestehen. Mit diesem Schalter wird sie stattdessen
+    # geloescht.
+    [switch]$RemoveEmptyTaskFile
 )
 
 Import-Module ActiveDirectory
@@ -97,14 +105,13 @@ function Get-CsvEncoding {
 # Bewusst nur die Kopfzeile auswerten: in den Datenzeilen trennt ";"
 # die Gruppennamen und wuerde die Zaehlung verfaelschen.
 function Get-CsvDelimiter {
-    param([string]$Path, [string]$Encoding)
+    param([string]$HeaderLine)
 
-    $headerLine = Get-Content -Path $Path -Encoding $Encoding -TotalCount 1
-    if (-not $headerLine) { return ',' }
+    if (-not $HeaderLine) { return ',' }
 
-    $comma = ([regex]::Matches($headerLine, ',')).Count
-    $semi  = ([regex]::Matches($headerLine, ';')).Count
-    $tab   = ([regex]::Matches($headerLine, "`t")).Count
+    $comma = ([regex]::Matches($HeaderLine, ',')).Count
+    $semi  = ([regex]::Matches($HeaderLine, ';')).Count
+    $tab   = ([regex]::Matches($HeaderLine, "`t")).Count
 
     if ($semi -gt $comma -and $semi -ge $tab) { return ';' }
     if ($tab  -gt $comma -and $tab  -gt $semi) { return "`t" }
@@ -117,8 +124,13 @@ if (!(Test-Path $TaskFile)) {
     exit 1
 }
 
-$encodingName   = Get-CsvEncoding -Path $TaskFile
-$delimiter      = Get-CsvDelimiter -Path $TaskFile -Encoding $encodingName
+$encodingName = Get-CsvEncoding -Path $TaskFile
+
+# Die Kopfzeile wird dreifach gebraucht: fuer die Trennzeichen-Erkennung,
+# fuer die Einordnung einer Datei ohne Datenzeilen und zum Zurueckschreiben
+# der leergearbeiteten Aufgabendatei.
+$headerLine     = Get-Content -Path $TaskFile -Encoding $encodingName -TotalCount 1
+$delimiter      = Get-CsvDelimiter -HeaderLine $headerLine
 $delimiterLabel = if ($delimiter -eq "`t") { 'Tabulator' } else { $delimiter }
 
 Write-Log "Aufgabendatei: $TaskFile (Kodierung: $encodingName, Trennzeichen: '$delimiterLabel')"
@@ -126,8 +138,18 @@ Write-Log "Aufgabendatei: $TaskFile (Kodierung: $encodingName, Trennzeichen: '$d
 $tasks = Import-Csv -Path $TaskFile -Encoding $encodingName -Delimiter $delimiter
 
 if (-not $tasks) {
-    Write-Log "Aufgabendatei enthaelt keine Datenzeilen: $TaskFile" Yellow
-    Write-Log "Falls das unerwartet ist: Kodierung und Trennzeichen pruefen (siehe Zeile oben)." Yellow
+    # Eine Datei mit gueltiger Kopfzeile, aber ohne Datenzeilen ist der
+    # Normalzustand nach einem vollstaendig abgearbeiteten Lauf und keine
+    # Fehlersituation. Nur wenn schon die Kopfzeile nicht stimmt, ist der
+    # Hinweis auf Kodierung und Trennzeichen angebracht - dann liegt naemlich
+    # meist eine falsch getrennte Datei mit echten Daten vor.
+    if ("$headerLine" -match '\bSamAccountName\b') {
+        Write-Log "Keine offenen Aufgaben in: $TaskFile" Gray
+    }
+    else {
+        Write-Log "Aufgabendatei enthaelt keine Datenzeilen: $TaskFile" Yellow
+        Write-Log "Falls das unerwartet ist: Kodierung und Trennzeichen pruefen (siehe Zeile oben)." Yellow
+    }
     exit 0
 }
 
@@ -272,9 +294,18 @@ if (-not $KeepTaskFile) {
         $remainingRows | Export-Csv -Path $TaskFile -NoTypeInformation -Encoding $encodingName -Delimiter $delimiter
         Write-Log "$($remainingRows.Count) noch nicht faellige Zeile(n) verbleiben in: $TaskFile" Cyan
     }
-    else {
+    elseif ($RemoveEmptyTaskFile) {
         Remove-Item -Path $TaskFile -Force
         Write-Log "Alle Zeilen abgearbeitet, Aufgabendatei entfernt: $TaskFile" Cyan
+    }
+    else {
+        # Nur die Kopfzeile zurueckschreiben. Die Datei bleibt damit an Ort
+        # und Stelle einsatzbereit - neue Aufgaben koennen einfach angehaengt
+        # werden, ohne sie vorher neu anlegen und formatieren zu muessen.
+        # Die urspruengliche Kopfzeile wird unveraendert uebernommen, damit
+        # Spaltennamen, Schreibweise und Trennzeichen erhalten bleiben.
+        $headerLine | Out-File -FilePath $TaskFile -Encoding $encodingName -Force
+        Write-Log "Alle Zeilen abgearbeitet, Aufgabendatei geleert (Kopfzeile bleibt): $TaskFile" Cyan
     }
 }
 
