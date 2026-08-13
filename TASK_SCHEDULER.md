@@ -217,10 +217,11 @@ so a failed run is visible in Task Scheduler without opening the log.
 |---|---|
 | Works manually, fails as a task with AD access errors | *Do not store password* is ticked, so the task has no network credentials. Untick it and store the password, or switch to a gMSA |
 | `The term 'Get-ADUser' is not recognized` | The ActiveDirectory module is missing on that server. Install RSAT: `Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0`, or on a server `Install-WindowsFeature RSAT-AD-PowerShell` |
-| Result `0x1`, log says "Aufgabendatei nicht gefunden" | The CSV was already fully processed and removed, or `-TaskFile` points somewhere else. Expected if there was nothing scheduled |
+| Result `0x1`, log says "Aufgabendatei nicht gefunden" | `-TaskFile` points somewhere else, or the file was deleted — the script only deletes it itself when run with `-RemoveEmptyTaskFile` |
 | Task returns `0x0` but nothing happened | All rows carry a future date — correct behaviour. The log states how many rows remain pending |
 | Umlauts appear garbled in the CSV | The file is ANSI-encoded without a BOM, which cannot be detected. Re-save it as UTF-8 |
-| Result `0x0`, log says "keine Datenzeilen" | The file has a header but no data rows. The log also states the detected encoding and separator — check those if you expected rows |
+| Result `0x0`, log says "Keine offenen Aufgaben" | Normal state: the task file has its header but no rows left to process. Add new rows whenever you need them |
+| Result `0x0`, log says "keine Datenzeilen" | The header line could not be read as columns either — the log states the detected encoding and separator, check those if you expected rows |
 | Log says "Spalte 'SamAccountName' fehlt" | The header line could not be split into columns. Compare the columns listed in the log against your header |
 | Nothing runs, no history | Task history is off, or the trigger is disabled. Enable history and check the **Next Run Time** (*Nächste Laufzeit*) column |
 
