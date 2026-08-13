@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Parse check and PSScriptAnalyzer
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        # Bewusst "powershell" (Windows PowerShell 5.1) statt "pwsh" (7):
+        # die geplante Aufgabe startet laut TASK_SCHEDULER.md ueber
+        # powershell.exe, und gerade bei Kodierungen unterscheiden sich
+        # beide Versionen (-Encoding UTF8 schreibt unter 5.1 ein BOM,
+        # unter 7 nicht). Geprueft wird, was produktiv auch laeuft.
+        shell: powershell
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: PowerShell-Version anzeigen
+        run: $PSVersionTable | Format-List | Out-String | Write-Host
+
+      # Faengt Syntaxfehler ab, ohne die Skripte auszufuehren. Ein Lauf
+      # gegen echtes AD ist auf einem GitHub-Runner nicht moeglich (kein
+      # RSAT, kein ActiveDirectory-Modul), ein Parse-Fehler wuerde sonst
+      # aber erst zur geplanten Laufzeit auf dem DC auffallen.
+      - name: Syntax pruefen
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem -Path . -Filter *.ps1 -Recurse) {
+              $parseErrors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  $file.FullName, [ref]$null, [ref]$parseErrors)
+
+              $relative = (Resolve-Path -LiteralPath $file.FullName -Relative) -replace '^\.[\\/]', ''
+              if ($parseErrors) {
+                  $failed = $true
+                  foreach ($parseError in $parseErrors) {
+                      $line = $parseError.Extent.StartLineNumber
+                      $col  = $parseError.Extent.StartColumnNumber
+                      Write-Host "::error file=$relative,line=$line,col=$col::$($parseError.Message)"
+                  }
+              }
+              else {
+                  Write-Host "OK: $relative"
+              }
+          }
+          if ($failed) { exit 1 }
+
+      - name: PSScriptAnalyzer
+        run: |
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+              Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          }
+          Import-Module PSScriptAnalyzer
+          (Get-Module PSScriptAnalyzer).Version | Out-String | Write-Host
+
+          $results = @(Invoke-ScriptAnalyzer -Path . -Recurse `
+              -Settings (Join-Path $PWD 'PSScriptAnalyzerSettings.psd1'))
+
+          if ($results.Count -eq 0) {
+              Write-Host "Keine Befunde."
+              exit 0
+          }
+
+          foreach ($result in $results) {
+              $level = if ($result.Severity -eq 'Error') { 'error' } else { 'warning' }
+              $relative = ($result.ScriptPath | Resolve-Path -Relative) -replace '^\.[\\/]', ''
+              Write-Host "::$level file=$relative,line=$($result.Line)::$($result.RuleName): $($result.Message)"
+          }
+
+          Write-Host "$($results.Count) Befund(e)."
+          exit 1
