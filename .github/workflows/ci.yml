@@ -21,7 +21,7 @@ jobs:
         shell: powershell
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: PowerShell-Version anzeigen
         run: $PSVersionTable | Format-List | Out-String | Write-Host
