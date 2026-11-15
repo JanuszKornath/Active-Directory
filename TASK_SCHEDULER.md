@@ -65,6 +65,17 @@ relevant OUs:
 - `inactive_users.ps1` needs **Read all user information** and the same
   enable/disable permission.
 
+Neither script needs the account to be a member of `Administrators`. Two things
+outside AD are required on the server that runs the task, though:
+
+- **Log on as a batch job** (*Anmelden als Stapelverarbeitungsauftrag*). On a
+  domain controller only Administrators, Backup Operators and Performance Log
+  Users hold this right by default, so a delegated account or gMSA must be
+  granted it through a GPO that applies to the domain controllers (*Computer
+  Configuration → Windows Settings → Security Settings → Local Policies → User
+  Rights Assignment*). Without it the task does not start at all.
+- **Write access to the working directory**, `C:\Temp` by default (see Step 1).
+
 ## Step 3 — Create the task (GUI)
 
 Open Task Scheduler (`taskschd.msc`) and choose **Create Task…**
@@ -188,8 +199,14 @@ Test in this order, so a mistake shows up while you are watching:
 4. **Check the log file** the script wrote to `C:\Temp` — it lists every account
    and group it touched, and every error it hit.
 
-For a safe dry run of `scheduled_account_tasks.ps1`, point it at a CSV containing
-a single test user and pass `-KeepTaskFile` so the task file is left untouched.
+Neither script has a dry-run mode. To test `scheduled_account_tasks.ps1` safely,
+point it at a CSV containing a single test user. `-KeepTaskFile` only skips
+archiving and rewriting the task file — the account and group changes in the
+file are still carried out for real.
+
+When you run `inactive_users.ps1` by hand as an administrator in a non-elevated
+window, it relaunches itself with a UAC prompt. Started as the delegated task
+account it runs straight through.
 
 Task history is disabled by default. Turn it on via **Enable All Tasks History**
 (*Verlauf für alle Aufgaben aktivieren*) in the right-hand pane — without it,
@@ -202,8 +219,8 @@ so a failed run is visible in Task Scheduler without opening the log.
 
 | Last Run Result | Meaning |
 |---|---|
-| `0x0` | Success — all rows processed without errors |
-| `0x1` | The script logged at least one error, or the task file was missing. Read the log in `C:\Temp` |
+| `0x0` | Success — all rows processed, or all stale accounts disabled, without errors |
+| `0x1` | The script logged at least one error: the task file was missing, Active Directory could not be queried, or an account could not be changed. Read the log in `C:\Temp` |
 | `0x41300` | Task is ready, has not run yet |
 | `0x41301` | Task is currently running |
 | `0x41303` | Task has never run |
@@ -223,15 +240,22 @@ so a failed run is visible in Task Scheduler without opening the log.
 | Result `0x0`, log says "Keine offenen Aufgaben" | Normal state: the task file has its header but no rows left to process. Add new rows whenever you need them |
 | Result `0x0`, log says "keine Datenzeilen" | The header line could not be read as columns either — the log states the detected encoding and separator, check those if you expected rows |
 | Log says "Spalte 'SamAccountName' fehlt" | The header line could not be split into columns. Compare the columns listed in the log against your header |
+| `inactive_users.ps1` returns `0x1`, log lists accounts under "konnten NICHT deaktiviert werden" | The task account lacks the enable/disable permission on the OU of those accounts. Extend the delegation (Step 2) |
+| Task fails to start with a logon error (e.g. `0x80070569`) | The task account lacks **Log on as a batch job** on this server — see Step 2 |
 | Nothing runs, no history | Task history is off, or the trigger is disabled. Enable history and check the **Next Run Time** (*Nächste Laufzeit*) column |
 
 ## Note on `inactive_users.ps1`
 
 That script contains a self-elevation block that relaunches itself via
-`Start-Process -Verb RunAs` when not started as administrator. In an interactive
-session that is convenient; in a scheduled task it is not needed, because
-*Run with highest privileges* already provides elevation. Configure the task as
-described above and the block is simply skipped.
+`Start-Process -Verb RunAs`. It only fires when all of the following hold: the
+session is interactive, the process is not elevated, and the account is a member
+of `Administrators` whose token UAC has filtered. That is the administrator who
+starts the script by hand in a normal console.
+
+In a scheduled task the block is always skipped, whichever account the task runs
+as. A delegated non-admin account therefore works as described in Step 2; if it
+lacks permissions, the affected accounts are listed in the log and the task ends
+with `0x1` instead of reporting success.
 
 `scheduled_account_tasks.ps1` deliberately has no such block: a UAC prompt in an
 unattended task would wait forever and the task would run into its time limit.
